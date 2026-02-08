@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Smart Device Watcher</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { font-family: Arial; background:#0f172a; color:#e5e7eb; padding:20px }
+button { padding:10px 15px; margin:5px; font-size:16px }
+.status { margin-top:15px; color:#22c55e }
+</style>
+</head>
+
+<body>
+
+<h2>🟢 Smart Device Watcher</h2>
+<p>Status: <span class="status" id="status">Initializing…</span></p>
+
+<button onclick="enableMotion()">Enable Motion Sensor</button>
+<button onclick="sendStatus()">Send Status</button>
+
+<script>
+/* ========== CONFIG ========== */
+const BOT_TOKEN = "8402157750:AAFnBSx5lyY2lFQfNoUjSivsQgfTw0r0FRA";
+const CHAT_ID = "7289296911";
+
+const MOVE_THRESHOLD = 10;      // tilt sensitivity
+const BATTERY_STEP = 5;         // % change alert
+const ALERT_GAP = 20000;        // anti spam (ms)
+/* ============================ */
+
+let lastAlert = 0;
+let lastBattery = null;
+let lastCharging = null;
+let lastBeta = null;
+
+function canSend() {
+  return Date.now() - lastAlert > ALERT_GAP;
+}
+
+function sendTG(msg) {
+  if (!canSend()) return;
+  lastAlert = Date.now();
+
+  fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ chat_id: CHAT_ID, text: msg })
+  });
+}
+
+document.getElementById("status").innerText = "Running";
+
+/* ===== BATTERY SYSTEM ===== */
+if ("getBattery" in navigator) {
+  navigator.getBattery().then(battery => {
+
+    lastBattery = Math.round(battery.level * 100);
+    lastCharging = battery.charging;
+
+    function batteryCheck() {
+      const now = Math.round(battery.level * 100);
+
+      if (Math.abs(now - lastBattery) >= BATTERY_STEP) {
+        sendTG(`🔋 Battery: ${now}%`);
+        lastBattery = now;
+      }
+
+      if (battery.charging !== lastCharging) {
+        sendTG(battery.charging ? "🔌 Charging Connected" : "⚠️ Charging Disconnected");
+        lastCharging = battery.charging;
+      }
+    }
+
+    battery.addEventListener("levelchange", batteryCheck);
+    battery.addEventListener("chargingchange", batteryCheck);
+  });
+} else {
+  sendTG("❌ Battery API not supported on this browser");
+}
+
+/* ===== MOTION SYSTEM ===== */
+function enableMotion() {
+  if (typeof DeviceOrientationEvent !== "undefined" &&
+      typeof DeviceOrientationEvent.requestPermission === "function") {
+
+    DeviceOrientationEvent.requestPermission().then(res => {
+      if (res === "granted") startMotion();
+      else sendTG("❌ Motion permission denied");
+    });
+  } else {
+    startMotion();
+  }
+}
+
+function startMotion() {
+  window.addEventListener("deviceorientation", e => {
+    if (lastBeta !== null && Math.abs(e.beta - lastBeta) > MOVE_THRESHOLD) {
+      sendTG("📱 Device Movement Detected");
+    }
+    lastBeta = e.beta;
+  });
+  sendTG("📡 Motion Sensor Active");
+}
+
+/* ===== VISIBILITY / BACKGROUND ===== */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    sendTG("👀 Browser Sent To Background");
+  } else {
+    sendTG("👁️ Browser Active");
+  }
+});
+
+/* ===== HEARTBEAT ===== */
+setInterval(() => {
+  sendTG("💓 Device Watcher Alive");
+}, 10 * 60 * 1000); // every 10 min
+
+function sendStatus() {
+  sendTG("ℹ️ Manual Status Check OK");
+}
+
+/* ===== START ===== */
+sendTG("✅ Smart Device Watcher Started");
+</script>
+
+</body>
+</html>
